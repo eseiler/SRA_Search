@@ -223,6 +223,8 @@ int main(int argc, char const ** argv)
                                                                 options.number_of_hashes,
                                                                 options.kmer_size,
                                                                 options.size_of_ibf);
+        filter.kmerSize = options.kmer_size;
+        filter.windowSize = options.window_size;
         build_filter(options, filter);
     }
     catch (Exception const & e)
