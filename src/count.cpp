@@ -32,6 +32,8 @@
 // Author: Enrico Seiler <enrico.seiler@fu-berlin.de>
 // ==========================================================================
 
+#include <unordered_set>
+
 #include <seqan/arg_parse.h>
 #include <seqan/binning_directory.h>
 
@@ -128,13 +130,13 @@ inline void count_kmers(Options & options)
     std::vector<std::future<void>> tasks;
 
     std::mutex print_mtx;
-    std::mutex map_mtx;
+    std::mutex set_mtx;
 
-    std::unordered_map overall_content;
+    std::unordered_set<uint64_t> overall_content;
 
     for (uint32_t task_number = 0; task_number < options.threads; ++task_number)
     {
-        tasks.emplace_back(std::async([=, &mtx] {
+        tasks.emplace_back(std::async([=, &print_mtx, &set_mtx, &overall_content] {
             for (uint32_t bin_number = task_number*batch_size;
                 bin_number < options.number_of_bins && bin_number < (task_number +1) * batch_size;
                 ++bin_number)
@@ -153,23 +155,23 @@ inline void count_kmers(Options & options)
                     std::cerr << msg << std::endl;
                     throw toCString(msg);
                 }
-                std::unordered_map hashes;
+                std::unordered_set<uint64_t> hashes;
                 while(!atEnd(seq_file_in))
                 {
-                    Minimizer<19,25> minimizer;
+                    BDHash<Dna, Minimizer<19,25>> minimizer;
                     minimizer.resize(options.kmer_size, options.window_size);
                     readRecord(id, seq, seq_file_in);
                     if(length(seq) < options.kmer_size)
                         continue;
-                    mins = minimizer.getHash(seq);
+                    auto mins = minimizer.getHash(seq);
                     hashes.insert(mins.begin(), mins.end());
                 }
                 print_mtx.lock();
                 std::cerr << bin_number << '\t' << hashes.size() << std::endl;
                 print_mtx.unlock();
-                map_mtx.lock();
+                set_mtx.lock();
                 overall_content.insert(hashes.begin(), hashes.end());
-                map_mtx.unlock()
+                set_mtx.unlock();
             }}));
     }
 
