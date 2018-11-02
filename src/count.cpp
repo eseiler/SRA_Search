@@ -32,7 +32,9 @@
 // Author: Enrico Seiler <enrico.seiler@fu-berlin.de>
 // ==========================================================================
 
+#include <fstream>
 #include <unordered_set>
+#include <unordered_map>
 
 #include <seqan/arg_parse.h>
 #include <seqan/binning_directory.h>
@@ -40,6 +42,12 @@
 #include "helper.h"
 
 using namespace seqan;
+
+std::ifstream::pos_type filesize(const char* filename)
+{
+    std::ifstream in(filename, std::ifstream::ate | std::ifstream::binary);
+    return in.tellg();
+}
 
 struct Options
 {
@@ -120,6 +128,65 @@ parseCommandLine(Options & options, ArgumentParser & parser, int argc, char cons
     return ArgumentParser::PARSE_OK;
 }
 
+inline std::unordered_map<uint32_t, std::vector<uint32_t>> map_bins(Options const & options, std::string const & com_ext)
+{
+    uint32_t batch_size = options.number_of_bins/options.threads;
+    if(batch_size * options.threads < options.number_of_bins) ++batch_size;
+
+    std::unordered_map<uint32_t, std::vector<uint32_t>> bin_map;
+
+    std::vector<uint64_t> bin_sizes(options.number_of_bins);
+
+    for (uint32_t bin_number = 0; bin_number < options.number_of_bins; ++bin_number)
+    {
+        CharString seq_file_path;
+        append_file_name(seq_file_path, options.contigs_dir, bin_number);
+        append(seq_file_path, com_ext);
+
+        bin_sizes[bin_number] = filesize(toCString(seq_file_path));
+    }
+    std::cerr << "BIN SIZES\n";
+    for (size_t i = 0; i < bin_sizes.size(); ++i)
+    {
+        std::cerr << i << '\t' << bin_sizes[i];
+    }
+    std::cerr << '\n';
+    uint64_t total_size = std::accumulate(bin_sizes.begin(), bin_sizes.end(), 0);
+    double alpha = 1.15;
+    double threshold = (1.0 / options.threads) * alpha;
+    std::cerr << "Threshold\t" << threshold;
+    std::vector<double> bin_weights;
+    bin_weights.resize(options.number_of_bins, 0.0);
+    std::transform(bin_sizes.begin(), bin_sizes.end(), bin_weights.begin(),
+                  [&](auto & size) { return (double) size / total_size;});
+    std::cerr << "BIN WEIGHTS\n";
+    for (size_t i = 0; i < bin_weights.size(); ++i)
+    {
+        std::cerr << i << '\t' << bin_weights[i];
+    }
+    std::cerr << '\n';
+    double s{0.0};
+    unsigned t{0};
+    for (uint32_t bin = 0; bin < options.number_of_bins; ++bin)
+    {
+        double size_ratio = bin_weights[bin];
+        if (s + size_ratio >= threshold)
+        {
+            s = size_ratio;
+            if (t != options.threads -1)
+                ++t;
+            bin_map[t].push_back(bin);
+        }
+        else
+        {
+            s += size_ratio;
+            bin_map[t].push_back(bin);
+        }
+    }
+    return bin_map;
+}
+
+
 inline void count_kmers(Options & options)
 {
     std::string com_ext = common_ext(options.contigs_dir, options.number_of_bins);
@@ -127,22 +194,21 @@ inline void count_kmers(Options & options)
     uint32_t batch_size = options.number_of_bins/options.threads;
     if(batch_size * options.threads < options.number_of_bins) ++batch_size;
 
+    std::unordered_map<uint32_t, std::vector<uint32_t>> bin_map = map_bins(options, com_ext);
+
     std::vector<std::future<void>> tasks;
 
     std::mutex print_mtx;
-    std::mutex set_mtx;
 
-    uint64_t bv_size = 1<<(2*options.kmer_size);
+    uint64_t bv_size = 1ULL<<(2*options.kmer_size);
     uint64_t sig_bit = bv_size - 1;
 
     sdsl::bit_vector overall_content(bv_size, 0, 1);
 
     for (uint32_t task_number = 0; task_number < options.threads; ++task_number)
     {
-        tasks.emplace_back(std::async([=, &print_mtx, &set_mtx, &overall_content] {
-            for (uint32_t bin_number = task_number*batch_size;
-                bin_number < options.number_of_bins && bin_number < (task_number +1) * batch_size;
-                ++bin_number)
+        tasks.emplace_back(std::async([=, &print_mtx, &overall_content, &bin_map] {
+            for (uint32_t bin_number : bin_map[task_number])
             {
                 CharString seq_file_path;
                 append_file_name(seq_file_path, options.contigs_dir, bin_number);
@@ -172,12 +238,10 @@ inline void count_kmers(Options & options)
                 print_mtx.lock();
                 std::cerr << bin_number << '\t' << hashes.size() << std::endl;
                 print_mtx.unlock();
-                // set_mtx.lock();
                 for (auto &x : hashes)
                 {
                     overall_content[(x & sig_bit)] = 1;
                 }
-                // set_mtx.unlock();
             }}));
     }
 
