@@ -132,7 +132,7 @@ inline void count_kmers(Options & options)
     std::mutex print_mtx;
     std::mutex set_mtx;
 
-    uint64_t bv_size = 1<<(2*options.kmer_size);
+    uint64_t bv_size = 1ULL<<(2*options.kmer_size);
     uint64_t sig_bit = bv_size - 1;
 
     sdsl::bit_vector overall_content(bv_size, 0, 1);
