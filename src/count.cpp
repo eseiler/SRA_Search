@@ -132,7 +132,10 @@ inline void count_kmers(Options & options)
     std::mutex print_mtx;
     std::mutex set_mtx;
 
-    std::unordered_set<uint64_t> overall_content;
+    uint64_t bv_size = 1<<(2*options.kmer_size);
+    uint64_t sig_bit = bv_size - 1;
+
+    sdsl::bit_vector overall_content(bv_size, 0, 1);
 
     for (uint32_t task_number = 0; task_number < options.threads; ++task_number)
     {
@@ -169,9 +172,12 @@ inline void count_kmers(Options & options)
                 print_mtx.lock();
                 std::cerr << bin_number << '\t' << hashes.size() << std::endl;
                 print_mtx.unlock();
-                set_mtx.lock();
-                overall_content.insert(hashes.begin(), hashes.end());
-                set_mtx.unlock();
+                // set_mtx.lock();
+                for (auto &x : hashes)
+                {
+                    overall_content[(x & sig_bit)] = 1;
+                }
+                // set_mtx.unlock();
             }}));
     }
 
@@ -179,9 +185,12 @@ inline void count_kmers(Options & options)
     {
         task.get();
     }
-    print_mtx.lock();
-    std::cerr << "Overall" << '\t' << overall_content.size() << std::endl;
-    print_mtx.unlock();
+    uint64_t overall_count{0};
+    for (uint64_t idx = 0; idx < bv_size; idx+=64)
+    {
+        overall_count += sdsl::bits::cnt(overall_content.get_int(idx));
+    }
+    std::cerr << "Overall" << '\t' << overall_count << std::endl;
 }
 
 int main(int argc, char const ** argv)
