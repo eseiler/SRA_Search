@@ -149,7 +149,8 @@ inline void count_kmers(Options & options)
                 append(seq_file_path, com_ext);
 
                 // read everything as CharString to avoid impure sequences crashing the program
-                CharString id, seq;
+                Dna5String seq;
+		CharString id;
                 SeqFileIn seq_file_in;
                 if (!open(seq_file_in, toCString(seq_file_path)))
                 {
@@ -161,7 +162,7 @@ inline void count_kmers(Options & options)
                 std::unordered_set<uint64_t> hashes;
                 while(!atEnd(seq_file_in))
                 {
-                    BDHash<Dna, Minimizer<19,25>> minimizer;
+                    BDHash<Dna5, Minimizer<19,25>> minimizer;
                     minimizer.resize(options.kmer_size, options.window_size);
                     readRecord(id, seq, seq_file_in);
                     if(length(seq) < options.kmer_size)
