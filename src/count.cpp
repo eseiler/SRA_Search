@@ -150,7 +150,7 @@ inline void count_kmers(Options & options)
 
                 // read everything as CharString to avoid impure sequences crashing the program
                 Dna5String seq;
-		CharString id;
+                CharString id;
                 SeqFileIn seq_file_in;
                 if (!open(seq_file_in, toCString(seq_file_path)))
                 {
