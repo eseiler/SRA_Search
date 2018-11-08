@@ -31,7 +31,9 @@ set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${SEQAN_CXX_FLAGS}")
 # Add executable and link against SeqAn dependencies.
 add_executable (build src/build.cpp
                       src/helper.h)
-add_executable (count src/count.cpp
+add_executable (count_single src/count.cpp
+                      src/helper.h)
+add_executable (count src/count_single.cpp
                       src/helper.h)
 add_executable (time  src/time.cpp
                       src/helper.h)
