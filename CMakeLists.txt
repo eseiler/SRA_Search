@@ -33,5 +33,7 @@ add_executable (build src/build.cpp
                       src/helper.h)
 add_executable (count src/count.cpp
                       src/helper.h)
+add_executable (time  src/time.cpp
+                      src/helper.h)
 target_link_libraries (build ${SEQAN_LIBRARIES})
 target_link_libraries (count ${SEQAN_LIBRARIES})
