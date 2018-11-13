@@ -32,6 +32,8 @@
 // Author: Enrico Seiler <enrico.seiler@fu-berlin.de>
 // ==========================================================================
 
+#include <set>
+
 #include <seqan/arg_parse.h>
 #include <seqan/binning_directory.h>
 
@@ -44,6 +46,7 @@ struct Options
     // CharString  contigs_dir;
     CharString  query_file;
     CharString  filter_file;
+    CharString  output_file;
 
     uint32_t    errors;
     uint32_t    penalty;
@@ -78,9 +81,8 @@ void setupArgumentParser(ArgumentParser & parser, Options const & options)
 
     addSection(parser, "Query Options");
 
-    // addOption(parser, ArgParseOption("o", "output-file", "Specify an output filename for the filter. \
-    //                                  Default: use the directory name of reference genomes.", ArgParseOption::OUTPUT_FILE));
-    // setValidValues(parser, "output-file", "filter");
+    addOption(parser, ArgParseOption("o", "output-file", "Specify an output filename for the results. \
+                                     Default: search_results.txt", ArgParseOption::OUTPUT_FILE));
 
     // addOption(parser, ArgParseOption("b", "number-of-bins", "The number of bins",
     //                                  ArgParseOption::INTEGER));
@@ -140,13 +142,12 @@ parseCommandLine(Options & options, ArgumentParser & parser, int argc, char cons
     // // Append trailing slash if it doesn't exist.
     // append_trailing_slash(options.contigs_dir);
     //
-    // // Parse contigs index prefix.
-    // getOptionValue(options.filter_file, parser, "output-file");
-    // if (!isSet(parser, "output-file"))
-    // {
-    //     options.filter_file = trimExtension(options.contigs_dir);
-    //     append(options.filter_file, "bloom.filter");
-    // }
+    // Parse contigs index prefix.
+    getOptionValue(options.output_file, parser, "output-file");
+    if (!isSet(parser, "output-file"))
+    {
+        options.output_file = CharString("search_results.txt");
+    }
 
     if (isSet(parser, "errors")) getOptionValue(options.errors, parser, "errors");
     if (isSet(parser, "penalty")) getOptionValue(options.penalty, parser, "penalty");
@@ -180,6 +181,109 @@ parseCommandLine(Options & options, ArgumentParser & parser, int argc, char cons
 template <typename TFilter>
 inline void search_filter(Options & options, TFilter & filter)
 {
+    std::array<uint32_t, 255> bin2file{
+        0,0,0,0,
+        1,1,1,1,1,1,
+        2,2,2,2,2,2,
+        3,3,3,3,3,
+        4,4,4,4,
+        5,5,5,5,5,5,
+        6,6,6,6,6,
+        7,7,7,7,7,
+        8,8,8,8,8,
+        9,9,9,9,9,9,
+        10,10,10,10,10,
+        11,11,11,11,11,
+        12,12,12,12,12,12,12,
+        13,13,13,13,13,13,13,13,13,13,
+        14,14,14,14,14,14,14,14,14,14,
+        15,15,15,15,15,15,15,15,15,15,15,
+        16,16,16,16,16,16,16,16,16,16,16,16,
+        17,17,17,17,17,17,17,17,17,17,17,
+        18,18,18,18,
+        19,19,19,19,
+        20,20,20,20,
+        21,21,21,
+        22,22,22,
+        23,23,
+        24,24,24,24,
+        25,25,25,25,25,25,
+        26,26,26,26,
+        27,27,27,
+        28,28,28,28,
+        29,29,29,29,
+        30,30,30,30,30,30,30,
+        31,31,31,31,31,31,
+        32,32,32,32,32,32,
+        33,33,33,33,33,
+        34,34,34,34,
+        35,35,35,
+        36,36,36,
+        37,37,37,
+        38,38,38,38,
+        39,39,39,
+        40,40,40,
+        41,41,41,41,
+        42,42,42,42,
+        43,43,
+        44,44,44,44,
+        45,45,45,45,45,45,45,45,
+        46,46,46,46,
+        47,
+        48,48,48,48,
+        49,49,49,49,49,49,49,49,49};
+    std::array<std::string, 50> file2srr{
+        "SRR1523653",
+        "SRR1523654",
+        "SRR1523655",
+        "SRR1523656",
+        "SRR1523657",
+        "SRR1523658",
+        "SRR1523659",
+        "SRR1523661",
+        "SRR1523662",
+        "SRR1523663",
+        "SRR1523664",
+        "SRR1523665",
+        "SRR1523666",
+        "SRR2038259",
+        "SRR2038310",
+        "SRR2038322",
+        "SRR2038440",
+        "SRR2038441",
+        "SRR5444611",
+        "SRR5444613",
+        "SRR5444615",
+        "SRR5444617",
+        "SRR5444619",
+        "SRR5444621",
+        "SRR5444623",
+        "SRR5444625",
+        "SRR5444643",
+        "SRR5444645",
+        "SRR5444647",
+        "SRR5444649",
+        "SRR5444651",
+        "SRR5444653",
+        "SRR5444655",
+        "SRR5444657",
+        "SRR5444661",
+        "SRR5444665",
+        "SRR5444669",
+        "SRR5756304",
+        "SRR5756312",
+        "SRR5756317",
+        "SRR5756320",
+        "SRR5756324",
+        "SRR5762372",
+        "SRR5762373",
+        "SRR5762374",
+        "SRR5762375",
+        "SRR5762376",
+        "SRR5762377",
+        "SRR5762378",
+        "SRR5762379"
+    };
     Dna5String seq;
     CharString id;
     SeqFileIn seq_file_in;
@@ -190,32 +294,43 @@ inline void search_filter(Options & options, TFilter & filter)
         std::cerr << msg << std::endl;
         throw toCString(msg);
     }
+    std::ofstream out(toCString(options.output_file));
     while(!atEnd(seq_file_in))
     {
         readRecord(id, seq, seq_file_in);
         if(length(seq) < getKmerSize(filter))
             continue;
-        std::vector<uint64_t> result = count(filter, seq);
-        std::cerr << "Read " << id << " counts in bins:\n";
-        for (size_t i = 0; i < result.size(); ++i)
-        {
-            std::cerr << i << ' ' << result[i] << " || ";
-        }
-        std::cerr << std::endl;
-        // bool found{false};
-        // std::vector<bool> result = select(filter, seq, options.errors, options.penalty);
-        // std::cerr << "Read " << id << " found in bins:\n";
+        // std::vector<uint64_t> result = count<Minimizer<19, 24>>(filter, seq);
+        // std::cerr << "Read " << id << " counts in bins:\n";
         // for (size_t i = 0; i < result.size(); ++i)
         // {
         //     if (result[i])
-        //     {
-        //         found = true;
-        //         std::cerr << i << ' ';
-        //     }
+        //         std::cerr << i << ' ' << result[i] << " || ";
         // }
-        // if (!found)
-        //     std::cerr << "None";
         // std::cerr << std::endl;
+        std::vector<bool> result = select(filter, seq, options.errors, options.penalty);
+        std::set<std::string> bins;
+        for (size_t i = 0; i < result.size(); ++i)
+        {
+            if (result[i])
+            {
+                bins.insert(file2srr[bin2file[i]]);
+            }
+        }
+        out << id << '\n';
+        if (!bins.empty())
+        {
+            const auto separator = ",";
+            const auto* sep = "";
+            for(auto const & item : bins) {
+                out << sep << item;
+                sep = separator;
+            }
+        }
+        else
+            out << "NA";
+
+        out << std::endl;
     }
     // std::string com_ext = common_ext(options.contigs_dir, options.number_of_bins);
     //
