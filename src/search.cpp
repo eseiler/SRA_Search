@@ -195,13 +195,19 @@ inline void search_filter(Options & options, TFilter & filter)
         readRecord(id, seq, seq_file_in);
         if(length(seq) < getKmerSize(filter))
             continue;
+        bool found{false};
         std::vector<bool> result = select(filter, seq, options.errors, options.penalty);
         std::cerr << "Read " << id << " found in bins:\n";
         for (size_t i = 0; i < result.size(); ++i)
         {
             if (result[i])
+            {
+                found = true;
                 std::cerr << i << ' ';
+            }
         }
+        if (!found)
+            std::cerr << "None";
         std::cerr << std::endl;
     }
     // std::string com_ext = common_ext(options.contigs_dir, options.number_of_bins);
