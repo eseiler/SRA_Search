@@ -175,7 +175,8 @@ inline void build_filter(Options & options, TFilter & filter)
                 append(seq_file_path, com_ext);
 
                 // read everything as CharString to avoid impure sequences crashing the program
-                CharString id, seq;
+                CharString id;
+                Dna5String seq;
                 SeqFileIn seq_file_in;
                 if (!open(seq_file_in, toCString(seq_file_path)))
                 {
@@ -218,7 +219,7 @@ int main(int argc, char const ** argv)
 
     try
     {
-        typedef BDConfig<Dna, Minimizer<19, 25>, Uncompressed> Config;
+        typedef BDConfig<Dna5, Minimizer<19, 24>, Uncompressed> Config;
         BinningDirectory<InterleavedBloomFilter, Config> filter(options.number_of_bins,
                                                                 options.number_of_hashes,
                                                                 options.kmer_size,
