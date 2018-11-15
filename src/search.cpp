@@ -32,14 +32,28 @@
 // Author: Enrico Seiler <enrico.seiler@fu-berlin.de>
 // ==========================================================================
 
+#include <atomic>
 #include <set>
 
 #include <seqan/arg_parse.h>
 #include <seqan/binning_directory.h>
 
 #include "helper.h"
+#include "safequeue.hpp"
 
 using namespace seqan;
+
+struct ReadBatch
+{
+    StringSet<CharString> ids;
+    StringSet<Dna5String> seqs;
+};
+
+struct ReadResult
+{
+    CharString id;
+    std::set<std::string> bins;
+};
 
 struct Options
 {
@@ -284,97 +298,98 @@ inline void search_filter(Options & options, TFilter & filter)
         "SRR5762378",
         "SRR5762379"
     };
-    Dna5String seq;
-    CharString id;
-    SeqFileIn seq_file_in;
-    if (!open(seq_file_in, toCString(options.query_file)))
-    {
-        CharString msg = "Unable to open contigs file: ";
-        append(msg, CharString(options.query_file));
-        std::cerr << msg << std::endl;
-        throw toCString(msg);
-    }
-    std::ofstream out(toCString(options.output_file));
-    while(!atEnd(seq_file_in))
-    {
-        readRecord(id, seq, seq_file_in);
-        if(length(seq) < getKmerSize(filter))
-            continue;
-        // std::vector<uint64_t> result = count<Minimizer<19, 24>>(filter, seq);
-        // std::cerr << "Read " << id << " counts in bins:\n";
-        // for (size_t i = 0; i < result.size(); ++i)
-        // {
-        //     if (result[i])
-        //         std::cerr << i << ' ' << result[i] << " || ";
-        // }
-        // std::cerr << std::endl;
-        std::vector<bool> result = select(filter, seq, options.errors, options.penalty);
-        std::set<std::string> bins;
-        for (size_t i = 0; i < result.size(); ++i)
-        {
-            if (result[i])
-            {
-                bins.insert(file2srr[bin2file[i]]);
-            }
-        }
-        out << id << '\n';
-        if (!bins.empty())
-        {
-            const auto separator = ",";
-            const auto* sep = "";
-            for(auto const & item : bins) {
-                out << sep << item;
-                sep = separator;
-            }
-        }
-        else
-            out << "NA";
 
-        out << std::endl;
+    std::ofstream out(toCString(options.output_file));
+
+    std::vector<std::future<void>> tasks;
+    SafeQueue<ReadBatch> rbq;
+    SafeQueue<ReadResult> rsq;
+
+    bool finished_reading = false;
+
+    tasks.emplace_back(std::async([=, &rbq, &options, &finished_reading] () {
+        SeqFileIn seq_file_in;
+        if (!open(seq_file_in, toCString(options.query_file)))
+        {
+            CharString msg = "Unable to open contigs file: ";
+            append(msg, CharString(options.query_file));
+            std::cerr << msg << std::endl;
+            throw toCString(msg);
+        }
+        while(!atEnd(seq_file_in))
+        {
+            while (rbq.size() > options.threads * 3)
+            {
+                ;
+            }
+            StringSet<Dna5String> seq;
+            StringSet<CharString> id;
+            readRecords(id, seq, seq_file_in, 50000);
+            rbq.push(ReadBatch{id, seq});
+        }
+        close(seq_file_in);
+        finished_reading = true;
+    }));
+    std::atomic<uint32_t> finished_search{0};
+    for (uint32_t task_number = 0; task_number < (options.threads > 2 ? options.threads - 2 : 1); ++task_number)
+    {
+        tasks.emplace_back(std::async([=, &rbq, &rsq, &filter, &file2srr, &bin2file, &finished_reading, &finished_search] () {
+            while (true)
+            {
+                ReadBatch rb = rbq.pop();
+                for (size_t i = 0; i < length(rb.ids); ++i)
+                {
+                    if(length(rb.seqs[i]) < getKmerSize(filter))
+                        continue;
+                    std::vector<bool> result = select(filter, rb.seqs[i], options.errors, options.penalty);
+                    std::set<std::string> bins;
+                    for (size_t j = 0; j < result.size(); ++j)
+                    {
+                        if (result[j])
+                        {
+                            bins.insert(file2srr[bin2file[j]]);
+                        }
+                    }
+                    rsq.push(ReadResult{rb.ids[i], bins});
+                }
+                if (finished_reading && rbq.empty())
+                {
+                    finished_search++;
+                    break;
+                }
+            }
+        }));
     }
-    // std::string com_ext = common_ext(options.contigs_dir, options.number_of_bins);
-    //
-    // uint32_t batch_size = options.number_of_bins/options.threads;
-    // if(batch_size * options.threads < options.number_of_bins) ++batch_size;
-    //
-    // std::vector<std::future<void>> tasks;
-    //
-    // for (uint32_t task_number = 0; task_number < options.threads; ++task_number)
-    // {
-    //     tasks.emplace_back(std::async([=, &filter] {
-    //         for (uint32_t bin_number = task_number*batch_size;
-    //             bin_number < options.number_of_bins && bin_number < (task_number +1) * batch_size;
-    //             ++bin_number)
-    //         {
-    //             CharString seq_file_path;
-    //             append_file_name(seq_file_path, options.contigs_dir, bin_number);
-    //             append(seq_file_path, com_ext);
-    //
-    //             // read everything as CharString to avoid impure sequences crashing the program
-    //             CharString id, seq;
-    //             SeqFileIn seq_file_in;
-    //             if (!open(seq_file_in, toCString(seq_file_path)))
-    //             {
-    //                 CharString msg = "Unable to open contigs file: ";
-    //                 append(msg, CharString(seq_file_path));
-    //                 std::cerr << msg << std::endl;
-    //                 throw toCString(msg);
-    //             }
-    //             while(!atEnd(seq_file_in))
-    //             {
-    //                 readRecord(id, seq, seq_file_in);
-    //                 if(length(seq) < options.kmer_size)
-    //                     continue;
-    //                 insertKmer(filter, seq, bin_number);
-    //             }
-    //         }}));
-    // }
-    //
-    // for (auto &&task : tasks)
-    // {
-    //     task.get();
-    // }
-    // store(filter, toCString(options.filter_file));
+
+    tasks.emplace_back(std::async([=, &out, &rsq, &options, &finished_search] () {
+        while (true)
+        {
+            ReadResult rs = rsq.pop();
+            if (rs.id == "")
+                continue;
+            out << rs.id << '\n';
+            if (!rs.bins.empty())
+            {
+                const auto separator = ",";
+                const auto* sep = "";
+                for(auto const & item : rs.bins) {
+                    out << sep << item;
+                    sep = separator;
+                }
+            }
+            else
+                out << "NA";
+            out << std::endl;
+            if (rsq.empty() && finished_search.load() == (options.threads > 2 ? options.threads - 2 : 1))
+                break;
+        }
+    }));
+
+    for (auto && task : tasks)
+    {
+         task.get();
+    }
+    out.close();
 }
 
 int main(int argc, char const ** argv)
